@@ -13,7 +13,7 @@ object ShrinkingExample extends App {
     List("a", "b", "h", "i", "j") -> (180, 180000),
     List("a", "b", "k") -> (305, -1),
     List("a", "b", "k", "l") -> (240, -1),
-    List("a", "b", "k", "l", "m") -> (230, -1)
+    List("a", "b", "k", "l", "m") -> (230, -1),
   )
 
   paths.foreach { case (path, (ts, _)) =>
@@ -30,11 +30,10 @@ object ShrinkingExample extends App {
     List("a", "b", "c", "f", "g"),
     List("a", "b", "h"),
     List("a", "b", "h", "i"),
-    List("a", "b", "h", "i", "j")
+    List("a", "b", "h", "i", "j"),
   )
 
   tree.shrink(pathsInObject)
-
 
   println("=== Before compression ===")
   paths.foreach { case (path, (_, expected)) =>

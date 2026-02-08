@@ -1,9 +1,7 @@
-
 import com.pawelzabczynski.tessera.tree.TimestampTree
 import java.time.Instant
 
 object SimpleExample extends App {
-
 
   val baseTime = Instant.parse("2025-12-26T15:45:00.000Z")
 
@@ -17,13 +15,12 @@ object SimpleExample extends App {
     // otherwise the data will be corrupted by overriding the newest nodes by oldest
     List("a", "b", "k") -> (305, 230000),
     List("a", "b", "k", "l") -> (240, 230000),
-    List("a", "b", "k", "l", "m") -> (230, 230000)
+    List("a", "b", "k", "l", "m") -> (230, 230000),
   )
 
   paths.foreach { case (path, (ts, _)) =>
     tree.put(path, baseTime.plusSeconds(ts))
   }
-
 
   println("=== Before compression ===")
   paths.foreach { case (path, (_, expected)) =>
