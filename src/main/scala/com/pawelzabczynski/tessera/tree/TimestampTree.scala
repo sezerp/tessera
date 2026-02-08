@@ -109,9 +109,11 @@ class TimestampTree private(version: Byte, root: String, nodes: MMap[Int, Timest
             case Some(ln: LeafNode) => ln.modifiedAt
             case Some(dn: DataNode) =>
               val all = collectLeafs(dn.id)
-              all.foldLeft(-1L) {
-                case (acc, n) => Math.max(acc, n.modifiedAt)
+              val timeDelta = all.foldLeft(Long.MaxValue) {
+                case (acc, n) => Math.min(acc, n.modifiedAt)
               }
+
+              if (timeDelta == Long.MaxValue) -1 else timeDelta
             case None => -1
           }
         case head :: tail =>

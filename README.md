@@ -35,8 +35,8 @@ tree.put(List("root", "users", "alice", "email"), baseTime.plusSeconds(60))
 tree.put(List("root", "users", "bob", "name"),    baseTime.plusSeconds(120))
 
 // Query last modification time (relative to base, in millis)
-tree.modifyAt(List("root", "users", "alice", "email")) // 60000
-tree.modifyAt(List("root", "users"))                    // 120000 (max of subtree)
+tree.modifyAt(List("root", "users", "alice", "email")) // 60000 [ms]
+tree.modifyAt(List("root", "users"))                    // 60000 [ms] (min of subtree)
 
 // Serialize to compact binary and restore
 val bytes    = tree.serialize()
@@ -74,12 +74,12 @@ val restored = TimestampTree.deserialize(bytes)
 
 ### Key methods
 
-| Method | Description |
-|---|---|
-| `put(path, timestamp)` | Insert or update a path with a modification timestamp. |
-| `modifyAt(path)` | Query the latest modification time at a path (max over subtree for internal nodes). |
-| `serialize()` | Compact binary serialization of the full tree. |
-| `TimestampTree.deserialize(bytes)` | Reconstruct a tree from its serialized form. |
+| Method | Description                                                                                |
+|---|--------------------------------------------------------------------------------------------|
+| `put(path, timestamp)` | Insert or update a path with a modification timestamp.                                     |
+| `modifyAt(path)` | Query the latest modification time at a path (min/newest over subtree for internal nodes). |
+| `serialize()` | Compact binary serialization of the full tree.                                             |
+| `TimestampTree.deserialize(bytes)` | Reconstruct a tree from its serialized form.                                               |
 
 ## Contributing
 
