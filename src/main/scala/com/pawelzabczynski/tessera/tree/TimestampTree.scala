@@ -1,7 +1,7 @@
 package com.pawelzabczynski.tessera.tree
 
 import com.pawelzabczynski.tessera.tree.TimestampNode.{DataNode, LeafNode}
-import com.pawelzabczynski.tessera.tree.TimestampTree.{LeafCountBlockLength, NodeIdBlockSize, NumberNodesLength, RootNameLength, TimeBaseBlockLength, VersionIdLength}
+import com.pawelzabczynski.tessera.tree.TimestampTree.{LeafCountBlockLength, NodeIdBlockSize, NumberNodesLength, RootNameLength, TimeBaseBlockLength, VersionIdLength, pathToId}
 import net.jpountz.xxhash.XXHashFactory
 
 import java.io.ByteArrayOutputStream
@@ -9,13 +9,13 @@ import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import scala.annotation.tailrec
-import scala.collection.mutable.{ArrayBuffer, Map => MMap, Set => MSet}
+import scala.collection.mutable.{ArrayBuffer, Map => MMap, Set => MSet, Stack => MStack}
 
 
 /**
- * @param version compression version of compression, important when uncompress data
- * @param root the root node name, must be shorter than 256 characters, for objects it will be usually `.`
- * @param nodes graph representation as adjacency list
+ * @param version  compression version of compression, important when uncompress data
+ * @param root     the root node name, must be shorter than 256 characters, for objects it will be usually `.`
+ * @param nodes    graph representation as adjacency list
  * @param timeBase the time to which is delta calculated, allow shrink data size in compressed data
  * */
 class TimestampTree private(version: Byte, root: String, nodes: MMap[Int, TimestampNode], timeBase: Option[Instant]) {
@@ -23,8 +23,9 @@ class TimestampTree private(version: Byte, root: String, nodes: MMap[Int, Timest
 
   /**
    * mark path and node in graph as updated at given timestamp
+   *
    * @param path the exact path from root to entry in object
-   * @param ts timestamp on which entry was updated
+   * @param ts   timestamp on which entry was updated
    * */
   def put(path: List[String], ts: Instant): TimestampTree = {
     @tailrec
@@ -33,7 +34,7 @@ class TimestampTree private(version: Byte, root: String, nodes: MMap[Int, Timest
         case Nil => ()
         case head :: Nil =>
           val currentPath = head :: accPath
-          val currentId = TimestampTree.pathToId(currentPath)
+          val currentId = TimestampTree.pathToId(currentPath.reverse)
           nodes.get(currentId) match {
             case Some(n: LeafNode) =>
               val modifiedAt = nodeTS(ts)
@@ -55,7 +56,7 @@ class TimestampTree private(version: Byte, root: String, nodes: MMap[Int, Timest
           }
         case head :: tail =>
           val currentPath = head :: accPath
-          val currentId = TimestampTree.pathToId(currentPath)
+          val currentId = TimestampTree.pathToId(currentPath.reverse)
           nodes.get(currentId) match {
             case Some(ln: LeafNode) =>
               val currentNode = ln.asData
@@ -104,21 +105,15 @@ class TimestampTree private(version: Byte, root: String, nodes: MMap[Int, Timest
         case Nil => -1L
         case head :: Nil =>
           val currentPath = head :: accPath
-          val currentId = TimestampTree.pathToId(currentPath)
+          val currentId = TimestampTree.pathToId(currentPath.reverse)
           nodes.get(currentId) match {
             case Some(ln: LeafNode) => ln.modifiedAt
-            case Some(dn: DataNode) =>
-              val all = collectLeafs(dn.id)
-              val timeDelta = all.foldLeft(Long.MaxValue) {
-                case (acc, n) => Math.min(acc, n.modifiedAt)
-              }
-
-              if (timeDelta == Long.MaxValue) -1 else timeDelta
+            case Some(dn: DataNode) => calculateDataNodeTs(dn.id)
             case None => -1
           }
         case head :: tail =>
           val currentPath = head :: accPath
-          val currentId = TimestampTree.pathToId(currentPath)
+          val currentId = TimestampTree.pathToId(currentPath.reverse)
           nodes.get(currentId) match {
             case Some(ln: LeafNode) =>
               // even if path is longer, whole subtree has been modified at time when whole subtree has been updated
@@ -137,18 +132,47 @@ class TimestampTree private(version: Byte, root: String, nodes: MMap[Int, Timest
   }
 
   /**
-   * allow remove no longer existing data from tree
+   * allow remove no longer existing data from tree, if not performed than graph potentially can grow infinitely
+   * @note allPaths must contain all path combination otherwise the resulting graph can be corrupted and fail on serialization
    * @param allPaths all paths that exists in object
    * */
   def shrink(allPaths: List[List[String]]): TimestampTree = {
-    // todo implement
+    val pathToIds = allPaths.map(p => TimestampTree.pathToId(p) -> p).toMap
+    val pathsInTree = nodes.keys
+    val toRemove = MSet.empty[Int]
+
+    for (tp <- pathsInTree) {
+     pathToIds.get(tp) match {
+       case Some(p) => ()
+       case None => toRemove += tp
+     }
+    }
+
+    // removing from relations, adjacent lists
+    nodes.foreach {
+      case (_, _: LeafNode) => ()
+      case (nodeId, node: DataNode) =>
+        // convert into leaf node as no longer has child
+        val ts = calculateDataNodeTs(nodeId)
+        toRemove.foreach(node.children.remove)
+        if (node.children.isEmpty) {
+
+          nodes += (nodeId -> node.asLeaf(ts))
+        }
+    }
+    // remove from graph
+    for (nId <- toRemove) {
+      nodes.remove(nId)
+    }
+
     this
   }
 
 
+
   /**
    * Serialize graph as binary data, the format preserve whole tree structure.
-   * Layout:
+   * memory layout:
    * {{{
    *   +---------+---------+------+---------+---------+----------+
    *   | version | rootLen | root | nodeCnt | leafCnt | timeBase |
@@ -197,7 +221,8 @@ class TimestampTree private(version: Byte, root: String, nodes: MMap[Int, Timest
     val tsStream = new ByteArrayOutputStream()
     var prevTs = 0L
     rawTimestamps.foreach { ts =>
-      // zigzag -> make numbers smaller, usually, before variable length encoding, resulting better compression
+      // zigzag -> make numbers smaller, usually, before variable length encoding, resulting better compression.
+      // Lower numbers require fewer bytes when save
       TimestampTree.writeVariant(tsStream, TimestampTree.zigzagEncode(ts - prevTs))
       prevTs = ts
     }
@@ -254,6 +279,15 @@ class TimestampTree private(version: Byte, root: String, nodes: MMap[Int, Timest
     }
   }
 
+  private def calculateDataNodeTs(nodeId: Int): Long = {
+    val all = collectLeafs(nodeId)
+    val timeDelta = all.foldLeft(Long.MaxValue) {
+      case (acc, n) => Math.min(acc, n.modifiedAt)
+    }
+
+    if (timeDelta == Long.MaxValue) -1 else timeDelta
+  }
+
   private def nodeTS(nodeModifyTs: Instant): Long = {
     timeBase match {
       case Some(base) => nodeModifyTs.toEpochMilli - base.toEpochMilli
@@ -287,7 +321,7 @@ object TimestampTree {
     val nodes = MMap.empty[Int, TimestampNode]
     val rootId = pathToId(root)
     nodes += rootId -> LeafNode(rootId, 0)
-    println(s"ROOT: $root -> $rootId")
+
     new TimestampTree(1, root, nodes, Some(base))
   }
 
@@ -363,7 +397,8 @@ object TimestampTree {
   }
 
   /**
-   * Variable length encoding using 8 bits blocks, 128 based variant as it's done in protobuf
+   * Variable length encoding using 8 bit blocks, 128 based variant as it's done in protobuf
+   *
    * @see [[https://protobuf.dev/programming-guides/encoding/]]
    * */
   private[tessera] def writeVariant(out: ByteArrayOutputStream, value: Long): Unit = {
@@ -376,7 +411,8 @@ object TimestampTree {
   }
 
   /**
-   * Read variable length encoded value using 8 bits blocks, 128 based variant as it's done in protobuf
+   * Read variable length encoded value using 8 bit blocks, 128 based variant as it's done in protobuf
+   *
    * @see [[https://protobuf.dev/programming-guides/encoding/]]
    * */
   private[tessera] def readVarint(buf: ByteBuffer): Long = {
@@ -405,6 +441,7 @@ object TimestampTree {
 
   /**
    * Unpack bits into 1 byte blocks
+   *
    * @param bytes blob containing boolean data
    * @param count the number of bytes to unpack
    * */
