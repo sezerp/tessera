@@ -286,11 +286,11 @@ class TimestampTree private (version: Byte, root: String, nodes: MMap[Int, Times
 
   private def calculateDataNodeTs(nodeId: Int): Long = {
     val all = collectLeafs(nodeId)
-    val timeDelta = all.foldLeft(Long.MaxValue) { case (acc, n) =>
-      Math.min(acc, n.modifiedAt)
+    val timeDelta = all.foldLeft(0L) { case (acc, n) =>
+      Math.max(acc, n.modifiedAt)
     }
 
-    if (timeDelta == Long.MaxValue) -1 else timeDelta
+    timeDelta
   }
 
   private def nodeTS(nodeModifyTs: Instant): Long =

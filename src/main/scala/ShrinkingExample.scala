@@ -11,9 +11,9 @@ object ShrinkingExample extends App {
     List("a", "b", "c", "d", "e") -> (60, 60000),
     List("a", "b", "c", "f", "g") -> (3000, 3000000),
     List("a", "b", "h", "i", "j") -> (180, 180000),
-    List("a", "b", "k") -> (305, -1),
-    List("a", "b", "k", "l") -> (240, -1),
-    List("a", "b", "k", "l", "m") -> (230, -1),
+    List("a", "b", "k") -> (230, -1), // removed by shrinking
+    List("a", "b", "k", "l") -> (240, -1), // removed by shrinking
+    List("a", "b", "k", "l", "m") -> (250, -1), // removed by shrinking
   )
 
   paths.foreach { case (path, (ts, _)) =>

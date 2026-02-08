@@ -13,9 +13,9 @@ object SimpleExample extends App {
     List("a", "b", "h", "i", "j") -> (180, 180000),
     // this part must be done in certain order, from older to newer, bigger delta time to lower as is done in real life
     // otherwise the data will be corrupted by overriding the newest nodes by oldest
-    List("a", "b", "k") -> (305, 230000),
-    List("a", "b", "k", "l") -> (240, 230000),
-    List("a", "b", "k", "l", "m") -> (230, 230000),
+    List("a", "b", "k") -> (230, 250000), // override by child m
+    List("a", "b", "k", "l") -> (240, 250000), // override by child m
+    List("a", "b", "k", "l", "m") -> (250, 250000),
   )
 
   paths.foreach { case (path, (ts, _)) =>
